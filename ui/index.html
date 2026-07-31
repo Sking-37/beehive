@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>蜂群 - Multi-Agent 协作平台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    /* ═══════════════════════════════════════════════════════
+       1. 变量 & 重置
+    ═══════════════════════════════════════════════════════ */
+    :root {
+      --bg:          #0f1419;
+      --panel-bg:    #1a1f26;
+      --panel-alt:   #20272f;
+      --border:      #2a2f3a;
+      --border-hi:   #3a4050;
+      --accent:      #f5a623;
+      --accent-dim:  rgba(245,166,35,.15);
+      --blue:        #00b4d8;
+      --green:       #00c853;
+      --red:         #ff5252;
+      --yellow:      #f5a623;
+      --text:        #e8eaed;
+      --text-dim:    #8b9099;
+      --text-muted:  #5a6270;
+      --font-ui:     'Inter', system-ui, sans-serif;
+      --font-mono:   'JetBrains Mono', 'Fira Code', monospace;
+      --radius:      10px;
+      --radius-sm:   6px;
+      --transition:  .25s ease;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-ui);
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       2. Header
+    ═══════════════════════════════════════════════════════ */
+    .header {
+      height: 56px;
+      background: var(--panel-bg);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      flex-shrink: 0;
+      z-index: 100;
+    }
+
+    .header-left { display: flex; align-items: center; gap: 10px; }
+    .header-logo { font-size: 24px; line-height: 1; }
+    .header-title { font-size: 18px; font-weight: 600; color: var(--accent); letter-spacing: .5px; }
+    .header-subtitle { font-size: 12px; color: var(--text-dim); border-left: 1px solid var(--border); padding-left: 10px; }
+
+    .header-right { display: flex; align-items: center; gap: 16px; }
+
+    .conn-indicator { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); }
+    .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); transition: var(--transition); }
+    .conn-dot.connected  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .conn-dot.connecting { background: var(--yellow); animation: blink 1s infinite; }
+    .conn-dot.error     { background: var(--red); }
+
+    .header-stat { font-size: 12px; color: var(--text-dim); background: var(--panel-alt); padding: 4px 10px; border-radius: 20px; border: 1px solid var(--border); }
+
+    /* ═══════════════════════════════════════════════════════
+       3. 主布局（三栏）
+    ═══════════════════════════════════════════════════════ */
+    .main {
+      display: flex;
+      flex: 1;
+      padding: 16px;
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .panel {
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-dim);
+      padding: 12px 16px 8px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+
+    .panel-left   { width: 280px; flex-shrink: 0; }
+    .panel-center { flex: 1; min-width: 0; }
+    .panel-right  { width: 300px; flex-shrink: 0; }
+
+    /* ═══════════════════════════════════════════════════════
+       4. 左栏 — 任务输入
+    ═══════════════════════════════════════════════════════ */
+    .task-input-group { padding: 12px 14px 8px; flex-shrink: 0; }
+
+    .task-textarea {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: 13px;
+      line-height: 1.6;
+      padding: 10px 12px;
+      resize: none;
+      outline: none;
+      transition: border-color var(--transition);
+    }
+
+    .task-textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+
+    .task-textarea::placeholder { color: var(--text-muted); }
+
+    .template-group { padding: 0 14px 10px; flex-shrink: 0; }
+    .template-label { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; }
+    .template-btns { display: flex; flex-direction: column; gap: 4px; }
+
+    .template-btn {
+      background: var(--panel-alt);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-dim);
+      font-size: 11px;
+      font-family: var(--font-ui);
+      padding: 5px 8px;
+      text-align: left;
+      cursor: pointer;
+      transition: var(--transition);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .template-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+    .btn-submit {
+      margin: 0 14px 10px;
+      width: calc(100% - 28px);
+      padding: 10px;
+      background: var(--accent);
+      border: none;
+      border-radius: var(--radius-sm);
+      color: #0f1419;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: var(--font-ui);
+      cursor: pointer;
+      transition: var(--transition);
+      flex-shrink: 0;
+    }
+
+    .btn-submit:hover:not(:disabled) {
+      background: #f7b84b;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(245,166,35,.35);
+    }
+
+    .btn-submit:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-submit.running  { background: var(--yellow); }
+
+    .task-status-box { padding: 8px 14px 12px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+    .task-status-tag {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 3px 8px;
+      border-radius: 20px;
+      background: var(--panel-alt);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      transition: var(--transition);
+    }
+
+    .task-status-tag.waiting { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+    .task-status-tag.running  { background: rgba(0,180,216,.15); border-color: var(--blue); color: var(--blue); }
+    .task-status-tag.done     { background: rgba(0,200,83,.15); border-color: var(--green); color: var(--green); }
+    .task-status-tag.error    { background: rgba(255,82,82,.15); border-color: var(--red); color: var(--red); }
+
+    .task-id-display { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ═══════════════════════════════════════════════════════
+       5. 中栏 — DAG 可视化
+    ═══════════════════════════════════════════════════════ */
+    .panel-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      padding: 10px 16px 8px;
+      flex-shrink: 0;
+    }
+
+    .panel-header-row .panel-title { padding: 0; border: none; }
+
+    .dag-legend { display: flex; gap: 10px; font-size: 11px; color: var(--text-dim); }
+    .legend-item { display: flex; align-items: center; gap: 4px; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+    .dot-idle    { background: #3a3f4b; }
+    .dot-active  { background: var(--blue); box-shadow: 0 0 4px var(--blue); }
+    .dot-running { background: var(--yellow); }
+    .dot-done    { background: var(--green); }
+
+    .dag-canvas {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
+      min-height: 0;
+    }
+
+    #dag-svg { width: 100%; height: auto; max-height: 100%; }
+
+    .dag-edge {
+      stroke: var(--border-hi);
+      stroke-width: 1.5;
+      stroke-dasharray: 5 3;
+      transition: stroke var(--transition), stroke-width var(--transition);
+    }
+
+    .dag-edge.active { stroke: var(--blue); stroke-width: 2; stroke-dasharray: none; }
+    .dag-edge.done   { stroke: var(--green); stroke-dasharray: none; }
+    .dag-edge.error  { stroke: var(--red); stroke-dasharray: none; }
+
+    .node-bg {
+      fill: var(--panel-alt);
+      stroke: var(--border-hi);
+      stroke-width: 1.5;
+      transition: fill var(--transition), stroke var(--transition);
+    }
+
+    .node-icon  { font-size: 18px; font-family: 'Segoe UI Emoji', sans-serif; }
+    .node-label { font-size: 10px; font-weight: 600; fill: var(--text-dim); font-family: var(--font-mono); }
+    .node-loop  { font-size: 9px;  fill: var(--accent); font-family: var(--font-mono); font-weight: 700; }
+
+    .dag-node.active  .node-bg { fill: rgba(0,180,216,.2); stroke: var(--blue); }
+    .dag-node.running .node-bg { fill: rgba(245,166,35,.2); stroke: var(--yellow); }
+    .dag-node.done    .node-bg { fill: rgba(0,200,83,.15); stroke: var(--green); }
+    .dag-node.error   .node-bg { fill: rgba(255,82,82,.15); stroke: var(--red); }
+    .dag-node.active  .node-label { fill: var(--blue); }
+    .dag-node.running .node-label { fill: var(--yellow); }
+    .dag-node.done    .node-label { fill: var(--green); }
+    .dag-node.error   .node-label { fill: var(--red); }
+
+    /* ═══════════════════════════════════════════════════════
+       6. 右栏 — 执行详情
+    ═══════════════════════════════════════════════════════ */
+    .progress-bar-wrap { padding: 10px 14px 6px; flex-shrink: 0; }
+
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: var(--panel-alt);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width .4s ease;
+    }
+
+    .progress-text {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 4px;
+      display: block;
+    }
+
+    .subtasks-box {
+      padding: 6px 14px;
+      flex-shrink: 0;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+
+    .subtasks-title, .logs-title {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-bottom: 5px;
+    }
+
+    .subtasks-list { list-style: none; display: flex; flex-direction: column; gap: 3px; }
+
+    .subtask-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      padding: 4px 6px;
+      border-radius: var(--radius-sm);
+      background: var(--panel-alt);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      transition: var(--transition);
+    }
+
+    .subtask-item.done    { border-color: var(--green); color: var(--green); background: rgba(0,200,83,.08); }
+    .subtask-item.running { border-color: var(--yellow); color: var(--yellow); background: rgba(245,166,35,.08); }
+    .subtask-item.failed  { border-color: var(--red); color: var(--red); background: rgba(255,82,82,.08); }
+    .subtask-item.pending { opacity: .6; }
+
+    .subtask-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .subtask-item.done    .subtask-dot { background: var(--green); }
+    .subtask-item.running .subtask-dot { background: var(--yellow); animation: blink .8s infinite; }
+    .subtask-item.failed  .subtask-dot { background: var(--red); }
+    .subtask-item.pending .subtask-dot { background: var(--text-muted); }
+
+    .subtask-role {
+      font-size: 9px;
+      font-weight: 600;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: var(--border);
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .subtask-desc { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .subtask-empty { font-size: 11px; color: var(--text-muted); padding: 4px 0; font-style: italic; }
+
+    .logs-box {
+      flex: 1;
+      padding: 6px 14px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .logs-container {
+      flex: 1;
+      overflow-y: auto;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      max-height: 260px;
+    }
+
+    .log-line {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1.5;
+      padding: 1px 4px;
+      border-radius: 3px;
+      word-break: break-all;
+    }
+
+    .log-info    { color: var(--text-dim); }
+    .log-success { color: var(--green); }
+    .log-warn    { color: var(--yellow); }
+    .log-error   { color: var(--red); }
+    .log-accent  { color: var(--blue); }
+    .log-node {
+      color: var(--accent);
+      background: var(--accent-dim);
+      border-left: 2px solid var(--accent);
+      padding-left: 6px;
+    }
+
+    /* 统计区 */
+    .stats-box {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      padding: 10px 14px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      background: var(--panel-alt);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 6px 8px;
+    }
+
+    .stat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
+    .stat-value { font-size: 14px; font-weight: 600; color: var(--accent); font-family: var(--font-mono); }
+
+    /* ═══════════════════════════════════════════════════════
+       7. Footer — 历史任务
+    ═══════════════════════════════════════════════════════ */
+    .footer {
+      flex-shrink: 0;
+      background: var(--panel-bg);
+      border-top: 1px solid var(--border);
+    }
+
+    .footer-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--text-dim);
+      user-select: none;
+      transition: background var(--transition);
+    }
+
+    .footer-toggle:hover { background: var(--panel-alt); }
+
+    .toggle-icon { font-size: 10px; transition: transform var(--transition); }
+    .footer.collapsed .toggle-icon { transform: rotate(180deg); }
+
+    .footer-content {
+      max-height: 160px;
+      overflow-y: auto;
+      border-top: 1px solid var(--border);
+      transition: max-height .3s ease;
+    }
+
+    .footer.collapsed .footer-content { max-height: 0; overflow: hidden; }
+
+    .history-list { padding: 10px 16px; display: flex; flex-direction: column; gap: 6px; }
+
+    .history-empty { font-size: 11px; color: var(--text-muted); font-style: italic; text-align: center; padding: 10px 0; }
+
+    .history-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      background: var(--panel-alt);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .history-item:hover { border-color: var(--border-hi); }
+
+    .history-time { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); flex-shrink: 0; }
+    .history-task { flex: 1; font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .history-stat { font-size: 10px; flex-shrink: 0; }
+    .history-stat.ok  { color: var(--green); }
+    .history-stat.err { color: var(--red); }
+
+    /* ═══════════════════════════════════════════════════════
+       8. 动画 @keyframes
+    ═══════════════════════════════════════════════════════ */
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .3; }
+    }
+
+    @keyframes edgePulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .5; }
+    }
+
+    @keyframes nodePulse {
+      0%, 100% { filter: drop-shadow(0 0 4px var(--yellow)); }
+      50%       { filter: drop-shadow(0 0 12px var(--yellow)); }
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       9. 滚动条样式
+    ═══════════════════════════════════════════════════════ */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+
+    ::-webkit-scrollbar-track {
+      background: var(--bg);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border-hi);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    ::selection {
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       10. 响应式
+    ═══════════════════════════════════════════════════════ */
+    @media (max-width: 900px) {
+      .panel-right { display: none; }
+      .panel-left  { width: 220px; }
+    }
+
+    @media (max-width: 640px) {
+      .header-subtitle { display: none; }
+      .main            { padding: 8px; gap: 8px; }
+      .panel-left      { width: 180px; }
+      .task-textarea   { font-size: 12px; }
+      .btn-submit      { font-size: 12px; padding: 8px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════
+       HEADER 标题栏
+  ═══════════════════════════════════════════════ -->
+  <header class="header">
+    <div class="header-left">
+      <span class="header-logo">🐝</span>
+      <h1 class="header-title">蜂群</h1>
+      <span class="header-subtitle">Multi-Agent 协作平台</span>
+    </div>
+    <div class="header-right">
+      <span class="conn-indicator" id="conn-indicator">
+        <span class="conn-dot" id="conn-dot"></span>
+        <span id="conn-text">未连接</span>
+      </span>
+      <span class="header-stat" id="header-stat">0 个任务进行中</span>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════
+       MAIN 三栏主体
+  ═══════════════════════════════════════════════ -->
+  <main class="main">
+
+    <!-- ─────────────── 左栏：任务输入 ─────────────── -->
+    <aside class="panel panel-left" id="panel-left">
+
+      <h2 class="panel-title">📋 任务输入</h2>
+
+      <div class="task-input-group">
+        <textarea
+          id="task-textarea"
+          class="task-textarea"
+          placeholder="描述你想要蜂群完成的任务，例如：&#10;搜索最新AI新闻，总结3个关键趋势，写一份报告"
+          rows="6"
+        ></textarea>
+      </div>
+
+      <div class="template-group">
+        <p class="template-label">快捷模板</p>
+        <div class="template-btns" id="template-btns">
+          <!-- JS 动态插入模板按钮 -->
+        </div>
+      </div>
+
+      <button class="btn-submit" id="btn-submit" disabled>
+        <span id="btn-text">🚀 提交任务</span>
+      </button>
+
+      <div class="task-status-box" id="task-status-box">
+        <span class="task-status-tag" id="task-status-tag">等待输入</span>
+        <span class="task-id-display" id="task-id-display"></span>
+      </div>
+
+    </aside>
+
+    <!-- ─────────────── 中栏：DAG 可视化 ─────────────── -->
+    <section class="panel panel-center" id="panel-center">
+
+      <div class="panel-header-row">
+        <h2 class="panel-title">🕸️ 执行图</h2>
+        <div class="dag-legend">
+          <span class="legend-item"><span class="legend-dot dot-idle"></span>空闲</span>
+          <span class="legend-item"><span class="legend-dot dot-active"></span>激活</span>
+          <span class="legend-item"><span class="legend-dot dot-running"></span>执行中</span>
+          <span class="legend-item"><span class="legend-dot dot-done"></span>完成</span>
+        </div>
+      </div>
+
+      <!-- SVG DAG 画布 -->
+      <div class="dag-canvas" id="dag-canvas">
+        <svg
+          id="dag-svg"
+          viewBox="0 0 620 340"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <!-- 连接线：plan → 各 Agent（起点=plan右边缘(360,90)，终点=各节点左边缘） -->
+          <line class="dag-edge" id="edge-plan-researcher" x1="360" y1="90" x2="70"  y2="200"/>
+          <line class="dag-edge" id="edge-plan-coder"     x1="360" y1="90" x2="170" y2="200"/>
+          <line class="dag-edge" id="edge-plan-writer"   x1="360" y1="90" x2="350" y2="200"/>
+          <line class="dag-edge" id="edge-plan-reviewer" x1="360" y1="90" x2="450" y2="200"/>
+
+          <!-- 连接线：writer → reviewer（writer右上→reviewer左上） -->
+          <line class="dag-edge" id="edge-writer-reviewer" x1="450" y1="200" x2="450" y2="255"/>
+
+          <!-- 节点：plan（顶部中央）-->
+          <g class="dag-node" id="node-plan" transform="translate(260, 35)">
+            <rect class="node-bg" x="0" y="0" width="100" height="55" rx="10"/>
+            <text class="node-icon" x="50" y="25" text-anchor="middle">🧠</text>
+            <text class="node-label" x="50" y="42" text-anchor="middle">Plan</text>
+            <text class="node-loop" id="node-plan-loop" x="95" y="5" text-anchor="middle"></text>
+          </g>
+
+          <!-- 节点：researcher（左一）-->
+          <g class="dag-node" id="node-researcher" transform="translate(70, 200)">
+            <rect class="node-bg" x="0" y="0" width="100" height="55" rx="10"/>
+            <text class="node-icon" x="50" y="22" text-anchor="middle">🔍</text>
+            <text class="node-label" x="50" y="42" text-anchor="middle">Researcher</text>
+          </g>
+
+          <!-- 节点：coder（左二）-->
+          <g class="dag-node" id="node-coder" transform="translate(170, 200)">
+            <rect class="node-bg" x="0" y="0" width="100" height="55" rx="10"/>
+            <text class="node-icon" x="50" y="22" text-anchor="middle">⚡</text>
+            <text class="node-label" x="50" y="42" text-anchor="middle">Coder</text>
+          </g>
+
+          <!-- 节点：writer（右二）-->
+          <g class="dag-node" id="node-writer" transform="translate(350, 200)">
+            <rect class="node-bg" x="0" y="0" width="100" height="55" rx="10"/>
+            <text class="node-icon" x="50" y="22" text-anchor="middle">✏️</text>
+            <text class="node-label" x="50" y="42" text-anchor="middle">Writer</text>
+          </g>
+
+          <!-- 节点：reviewer（右一）-->
+          <g class="dag-node" id="node-reviewer" transform="translate(450, 200)">
+            <rect class="node-bg" x="0" y="0" width="100" height="55" rx="10"/>
+            <text class="node-icon" x="50" y="22" text-anchor="middle">🧐</text>
+            <text class="node-label" x="50" y="42" text-anchor="middle">Reviewer</text>
+          </g>
+
+          <!-- 节点：evaluate（底部中央）-->
+          <g class="dag-node" id="node-evaluate" transform="translate(260, 285)">
+            <rect class="node-bg" x="0" y="0" width="100" height="45" rx="10"/>
+            <text class="node-icon" x="30" y="22" text-anchor="middle">📊</text>
+            <text class="node-label" x="60" y="22" text-anchor="middle">Evaluate</text>
+          </g>
+
+          <!-- 连接线：各 Agent → evaluate（终点=evaluate顶部y=285，左对齐） -->
+          <line class="dag-edge" id="edge-researcher-evaluate" x1="120" y1="255" x2="220" y2="285"/>
+          <line class="dag-edge" id="edge-coder-evaluate"      x1="220" y1="255" x2="240" y2="285"/>
+          <line class="dag-edge" id="edge-writer-evaluate"   x1="400" y1="255" x2="380" y2="285"/>
+          <line class="dag-edge" id="edge-reviewer-evaluate"  x1="500" y1="255" x2="400" y2="285"/>
+        </svg>
+      </div>
+
+    </section>
+
+    <!-- ─────────────── 右栏：执行详情 ─────────────── -->
+    <aside class="panel panel-right" id="panel-right">
+
+      <h2 class="panel-title">📊 执行详情</h2>
+
+      <!-- 进度指示 -->
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progress-bar">
+          <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+        </div>
+        <span class="progress-text" id="progress-text">等待任务</span>
+      </div>
+
+      <!-- 子任务列表 -->
+      <div class="subtasks-box">
+        <p class="subtasks-title">📋 子任务</p>
+        <ul class="subtasks-list" id="subtasks-list">
+          <li class="subtask-empty">暂无子任务</li>
+        </ul>
+      </div>
+
+      <!-- 实时日志 -->
+      <div class="logs-box">
+        <p class="logs-title">📜 执行日志</p>
+        <div class="logs-container" id="logs-container">
+          <div class="log-line log-info">🐝 蜂群已就绪，请提交任务</div>
+        </div>
+      </div>
+
+      <!-- 统计信息 -->
+      <div class="stats-box" id="stats-box">
+        <div class="stat-item">
+          <span class="stat-label">耗时</span>
+          <span class="stat-value" id="stat-elapsed">--</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">循环</span>
+          <span class="stat-value" id="stat-loops">0 / 5</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">完成</span>
+          <span class="stat-value" id="stat-completed">0 / 0</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Token</span>
+          <span class="stat-value" id="stat-tokens">--</span>
+        </div>
+      </div>
+
+    </aside>
+
+  </main>
+
+  <!-- ═══════════════════════════════════════════════
+       FOOTER 历史任务
+  ═══════════════════════════════════════════════ -->
+  <footer class="footer" id="footer">
+    <div class="footer-toggle" id="footer-toggle">
+      <span>📜 历史任务</span>
+      <span class="toggle-icon" id="toggle-icon">▲</span>
+    </div>
+    <div class="footer-content" id="footer-content">
+      <div class="history-list" id="history-list">
+        <div class="history-empty">暂无历史任务</div>
+      </div>
+    </div>
+  </footer>
+
+<script>
+    /* ═══════════════════════════════════════════════════════
+       1. 常量 & 状态
+    ═══════════════════════════════════════════════════════ */
+    const API_BASE = 'http://localhost:8000';
+    const MAX_LOOP = 5;
+
+    const state = {
+      taskId:       null,   // 当前任务 ID
+      connected:    false,  // SSE 连接状态
+      activeNodes:  new Set(),  // 当前激活的节点
+      logs:         [],     // 当前日志列表
+      history:      [],     // 历史任务
+      startTime:    null,   // 任务开始时间
+      timerInterval: null,  // 计时器 ID
+      source:       null,   // EventSource 实例
+      loopCount:    1,      // 当前循环次数（从1开始，plan首次激活即L1）
+    };
+
+    /* ═══════════════════════════════════════════════════════
+       2. 快捷模板
+    ═══════════════════════════════════════════════════════ */
+    const TEMPLATES = [
+      '搜索最新AI新闻，总结3个关键趋势，写一份300字报告',
+      '调研 Vue3 和 React 的优劣，给出选型建议',
+      '分析某竞品，输出对比报告和优化建议',
+    ];
+
+    /* ═══════════════════════════════════════════════════════
+       3. DOM 引用缓存
+    ═══════════════════════════════════════════════════════ */
+    const $ = id => document.getElementById(id);
+
+    const dom = {
+      // 连接状态
+      connDot:    $('conn-dot'),
+      connText:   $('conn-text'),
+      headerStat: $('header-stat'),
+      // 左栏
+      textarea:   $('task-textarea'),
+      btnSubmit:  $('btn-submit'),
+      btnText:    $('btn-text'),
+      statusTag:  $('task-status-tag'),
+      statusBox:  $('task-status-box'),
+      taskIdDisp: $('task-id-display'),
+      // 中栏
+      dagSvg:     $('dag-svg'),
+      // 右栏
+      progressFill: $('progress-fill'),
+      progressText: $('progress-text'),
+      subtasksList:  $('subtasks-list'),
+      logsContainer: $('logs-container'),
+      statElapsed:   $('stat-elapsed'),
+      statLoops:     $('stat-loops'),
+      statCompleted: $('stat-completed'),
+      statTokens:    $('stat-tokens'),
+      // Footer
+      footer:     $('footer'),
+      footerToggle: $('footer-toggle'),
+      footerContent: $('footer-content'),
+      historyList: $('history-list'),
+    };
+
+    /* ═══════════════════════════════════════════════════════
+       4. 核心函数
+    ═══════════════════════════════════════════════════════ */
+
+    /** 初始化 DAG：所有节点设为 idle */
+    function initDAG() {
+      ['plan','researcher','coder','writer','reviewer','evaluate']
+        .forEach(id => updateNodeState(id, 'idle'));
+      document.querySelectorAll('.dag-edge').forEach(el => {
+        el.classList.remove('active','done','error');
+      });
+    }
+
+    /** 更新节点状态 */
+    function updateNodeState(nodeId, s) {
+      const el = document.getElementById(`node-${nodeId}`);
+      if (!el) return;
+      el.classList.remove('idle','active','running','done','error');
+      if (s !== 'idle') el.classList.add(s);
+      // loop 计数显示
+      const loopEl = $('node-plan-loop');
+      if (nodeId === 'plan' && s === 'active' && state.loopCount) {
+        loopEl.textContent = `L${state.loopCount}/${MAX_LOOP}`;
+      } else if (nodeId === 'plan') {
+        loopEl.textContent = '';
+      }
+    }
+
+    /** 更新边的状态 */
+    function updateEdgeState(edgeId, s) {
+      const el = document.getElementById(edgeId);
+      if (!el) return;
+      el.classList.remove('active','done','error');
+      if (s !== 'idle') el.classList.add(s);
+    }
+
+    /** 追加一行日志 */
+    function appendLog(text, type = 'info') {
+      const line = document.createElement('div');
+      line.className = `log-line log-${type}`;
+      line.textContent = text;
+      dom.logsContainer.appendChild(line);
+      dom.logsContainer.scrollTop = dom.logsContainer.scrollHeight;
+      state.logs.push({ text, type });
+    }
+
+    /** 渲染子任务列表 */
+    function updateSubtasks(subtasks) {
+      if (!subtasks || !subtasks.length) return;
+      dom.subtasksList.innerHTML = '';
+      subtasks.forEach(st => {
+        const li = document.createElement('li');
+        li.className = `subtask-item ${st.status || 'pending'}`;
+        li.appendChild(Object.assign(document.createElement('span'), { className: 'subtask-dot' }));
+        li.appendChild(Object.assign(document.createElement('span'), { className: 'subtask-role', textContent: st.assigned_to || '' }));
+        li.appendChild(Object.assign(document.createElement('span'), { className: 'subtask-desc', textContent: st.description || '' }));
+        dom.subtasksList.appendChild(li);
+      });
+    }
+
+    /** 更新统计区 */
+    function updateStats(data) {
+      if (data.loop_count !== undefined) {
+        dom.statLoops.textContent = `${data.loop_count} / ${MAX_LOOP}`;
+      }
+      if (data.completed_count !== undefined && data.subtasks_count !== undefined) {
+        dom.statCompleted.textContent = `${data.completed_count} / ${data.subtasks_count}`;
+        const pct = data.subtasks_count > 0
+          ? Math.round(data.completed_count / data.subtasks_count * 100)
+          : 0;
+        dom.progressFill.style.width = `${pct}%`;
+        dom.progressText.textContent = `${data.completed_count}/${data.subtasks_count} 子任务完成`;
+      }
+      if (data.total_tokens !== undefined) {
+        dom.statTokens.textContent = `${(data.total_tokens / 1000).toFixed(1)}k`;
+      }
+    }
+
+    /** 提交任务 */
+    async function submitTask(text) {
+      if (!text.trim()) return;
+
+      // UI 初始化
+      dom.btnSubmit.disabled = true;
+      dom.btnText.textContent = '⏳ 执行中...';
+      dom.statusTag.className = 'task-status-tag running';
+      dom.statusTag.textContent = '执行中';
+
+      initDAG();
+      dom.subtasksList.innerHTML = '<li class="subtask-empty">任务已提交，等待响应...</li>';
+      dom.logsContainer.innerHTML = '';
+      state.logs = [];
+      state.loopCount = 1;
+      state.startTime = Date.now();
+      updateNodeState('plan', 'active');
+
+      // 启动计时器
+      state.timerInterval = setInterval(() => {
+        const sec = Math.floor((Date.now() - state.startTime) / 1000);
+        dom.statElapsed.textContent = `${sec}s`;
+      }, 1000);
+
+      try {
+        // 先获取一个 task_id 展示用（后台提交）
+        const resp = await fetch(`${API_BASE}/tasks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task: text.trim() }),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        state.taskId = data.task_id;
+        dom.taskIdDisp.textContent = data.task_id;
+        dom.headerStat.textContent = '1 个任务进行中';
+        appendLog(`任务已提交: ${data.task_id}`, 'accent');
+        // SSE 流式任务（独立的流式端点，接收原始任务文本）
+        connectSSE(data.task_id, text);
+      } catch (err) {
+        renderError(`提交失败: ${err.message}`);
+      }
+    }
+
+    /** 建立 SSE 连接（fetch + ReadableStream，POST /tasks/stream 直接接收任务文本）*/
+    function connectSSE(taskId, taskText) {
+      dom.connDot.className = 'conn-dot connecting';
+      dom.connText.textContent = '连接中...';
+      state.connected = false;
+
+      fetch(`${API_BASE}/tasks/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task: taskText }),
+      })
+        .then(resp => {
+          // 非 200 → 取消 reader，防止 pump 继续读错误响应体
+          if (!resp.ok) {
+            if (resp.body && resp.body.cancel) resp.body.cancel();
+            throw new Error(`HTTP ${resp.status}`);
+          }
+          state.connected = true;
+          dom.connDot.className = 'conn-dot connected';
+          dom.connText.textContent = '已连接';
+          appendLog('SSE 连接已建立', 'success');
+          return resp.body.getReader();
+        })
+        .then(reader => {
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          function pump() {
+            reader.read().then(({ done, value }) => {
+              if (done) return;
+              buffer += decoder.decode(value, { stream: true });
+              // 逐行解析 SSE data: {...}\n\n
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+              for (const line of lines) {
+                const match = line.match(/^data: (.+)$/);
+                if (match) {
+                  try {
+                    const ev = JSON.parse(match[1]);
+                    if (ev.event === 'step') renderStep(ev);
+                    else if (ev.event === 'done') renderDone(ev.result || {});
+                    else if (ev.event === 'error') renderError(ev.error || '未知错误');
+                  } catch (err) {
+                    appendLog(`解析事件失败: ${err.message}`, 'error');
+                  }
+                }
+              }
+              pump();
+            }).catch(err => {
+              // 读取被取消（done=true 或 cancel() 调用）不报错
+              if (err.name !== 'AbortError') {
+                renderError(`SSE 读取中断: ${err.message}`);
+              }
+            });
+          }
+
+          pump();
+        })
+        .catch(err => {
+          renderError(`连接失败: ${err.message}`);
+        });
+    }
+
+    /** 处理 step 事件（后端发送：node/progress/logs/subtasks）*/
+    function renderStep(data) {
+      // 当前执行节点高亮
+      if (data.node) {
+        updateNodeState(data.node, 'running');
+        appendLog(`▶ ${data.node} 执行中`, 'accent');
+      }
+
+      // 进度文字
+      if (data.progress) {
+        dom.progressText.textContent = data.progress;
+        // 尝试从 progress 解析完成数（如 "2/5"）
+        const m = data.progress.match(/^(\d+)\/(\d+)$/);
+        if (m) {
+          dom.statCompleted.textContent = data.progress;
+          dom.progressFill.style.width =
+            `${Math.round(parseInt(m[1]) / parseInt(m[2]) * 100)}%`;
+        }
+      }
+
+      // 子任务列表（后端会实时推送最新 subtasks）
+      if (data.subtasks) {
+        updateSubtasks(data.subtasks);
+      }
+
+      // 日志（后端每次发最新 5 条）
+      if (data.logs && Array.isArray(data.logs)) {
+        data.logs.forEach(l => appendLog(l, 'info'));
+      }
+    }
+
+    /** 处理 done 事件 */
+    function renderDone(result) {
+      clearInterval(state.timerInterval);
+      state.connected = false;
+
+      const elapsed = state.startTime
+        ? Math.floor((Date.now() - state.startTime) / 1000)
+        : '--';
+      dom.statElapsed.textContent = `${elapsed}s`;
+      dom.progressFill.style.width = '100%';
+      dom.progressText.textContent = '任务完成';
+
+      dom.btnSubmit.disabled = false;
+      dom.btnText.textContent = '🚀 提交任务';
+      dom.statusTag.className = 'task-status-tag done';
+      dom.statusTag.textContent = '已完成';
+      dom.headerStat.textContent = '0 个任务进行中';
+
+      updateNodeState('evaluate', 'done');
+      appendLog(`🎉 任务完成！耗时 ${elapsed}s`, 'success');
+
+      if (result) {
+        const completed = result.completed_count || 0;
+        const total = result.subtasks_count || 0;
+        appendLog(`子任务完成: ${completed}/${total}`, 'success');
+        if (result.total_tokens) {
+          dom.statTokens.textContent = `${(result.total_tokens / 1000).toFixed(1)}k`;
+          appendLog(`Token 消耗: ${(result.total_tokens / 1000).toFixed(1)}k`, 'info');
+        }
+      }
+
+      // 添加历史记录
+      if (state.taskId) {
+        addHistory({
+          id:       state.taskId,
+          task:     dom.textarea.value,
+          status:   'ok',
+          elapsed,
+          time:     new Date().toLocaleTimeString('zh-CN'),
+        });
+      }
+    }
+
+    /** 处理 error 事件 */
+    function renderError(msg) {
+      clearInterval(state.timerInterval);
+      state.connected = false;
+      dom.connDot.className = 'conn-dot error';
+      dom.connText.textContent = '错误';
+      dom.btnSubmit.disabled = false;
+      dom.btnText.textContent = '🚀 重新提交';
+      dom.statusTag.className = 'task-status-tag error';
+      dom.statusTag.textContent = '执行失败';
+      dom.headerStat.textContent = '0 个任务进行中';
+      updateNodeState('evaluate', 'error');
+      appendLog(`❌ 错误: ${msg}`, 'error');
+      // 确保 SSE 流已关闭
+      if (state.source) { state.source.close(); state.source = null; }
+    }
+
+    /** 添加历史记录 */
+    function addHistory(item) {
+      state.history.unshift(item);
+      if (state.history.length > 10) state.history.pop();
+      renderHistory();
+    }
+
+    /** 渲染历史列表 */
+    function renderHistory() {
+      if (!state.history.length) {
+        dom.historyList.innerHTML = '<div class="history-empty">暂无历史任务</div>';
+        return;
+      }
+      dom.historyList.innerHTML = '';
+      state.history.forEach(h => {
+        const div = document.createElement('div');
+        div.className = 'history-item';
+        const taskText = h.task.length > 36 ? h.task.slice(0, 36) + '...' : h.task;
+        div.appendChild(Object.assign(document.createElement('span'), { className: 'history-time', textContent: h.time }));
+        div.appendChild(Object.assign(document.createElement('span'), { className: 'history-task', textContent: taskText }));
+        div.appendChild(Object.assign(document.createElement('span'), {
+          className: `history-stat ${h.status}`,
+          textContent: `${h.status === 'ok' ? '✅' : '❌'} ${h.elapsed}s`,
+        }));
+        dom.historyList.appendChild(div);
+      });
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       5. 事件绑定
+    ═══════════════════════════════════════════════════════ */
+    // textarea 输入 → 监听内容，启用/禁用按钮
+    dom.textarea.addEventListener('input', () => {
+      dom.btnSubmit.disabled = !dom.textarea.value.trim();
+    });
+
+    // 提交按钮
+    dom.btnSubmit.addEventListener('click', () => {
+      submitTask(dom.textarea.value);
+    });
+
+    // 回车提交（Ctrl+Enter）
+    dom.textarea.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !dom.btnSubmit.disabled) {
+        submitTask(dom.textarea.value);
+      }
+    });
+
+    // 快捷模板按钮
+    TEMPLATES.forEach(tpl => {
+      const btn = document.createElement('button');
+      btn.className = 'template-btn';
+      btn.textContent = tpl.length > 28 ? tpl.slice(0, 28) + '...' : tpl;
+      btn.title = tpl;
+      btn.addEventListener('click', () => {
+        dom.textarea.value = tpl;
+        dom.textarea.focus();
+        dom.btnSubmit.disabled = false;
+      });
+      document.getElementById('template-btns').appendChild(btn);
+    });
+
+    // Footer 折叠
+    dom.footerToggle.addEventListener('click', () => {
+      dom.footer.classList.toggle('collapsed');
+    });
+
+    /* ═══════════════════════════════════════════════════════
+       6. 初始化
+    ═══════════════════════════════════════════════════════ */
+    initDAG();
+    renderHistory();
+    appendLog('🐝 蜂群已就绪，请提交任务', 'info');
+  </script>
+
+</body>
+</html>
