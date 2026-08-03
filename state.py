@@ -22,18 +22,67 @@ def _append_logs(existing: list, updates: Sequence) -> list:
     return existing + list(updates)
 
 
+def _detect_cycle(subtasks: list[dict]) -> bool:
+    """
+    检测 subtasks 中是否存在循环依赖。
+    用 DFS 检查：有向图中是否存在环。
+    返回 True = 有环（异常），False = 无环（正常）。
+    """
+    graph: dict[str, list[str]] = {}
+    for t in subtasks:
+        graph[t["id"]] = t.get("depends_on", [])
+
+    visited = set()
+    rec_stack = set()
+
+    def has_cycle(node: str) -> bool:
+        if node in rec_stack:
+            return True  # 回边，发现环
+        if node in visited:
+            return False
+        visited.add(node)
+        rec_stack.add(node)
+        for dep in graph.get(node, []):
+            if has_cycle(dep):
+                return True
+        rec_stack.remove(node)
+        return False
+
+    for node_id in graph:
+        if node_id not in visited:
+            if has_cycle(node_id):
+                return True
+    return False
+
+
 def _merge_subtasks(existing: list[dict], updates: list[dict]) -> list[dict]:
     """
     subtasks reducer：增量合并更新后的任务状态。
     每个 Agent 返回的 subtasks 只包含自己负责的任务子集，
     将这些增量合并到全局列表中（按 task_id 去重，后者覆盖前者）。
+
+    如果合并后检测到循环依赖，打印警告并保留原有任务列表。
     """
     if not existing:
-        return list(updates)
+        merged = list(updates)
+        if _detect_cycle(merged):
+            print(f"[蜂群警告] 检测到循环依赖，已拒绝更新！")
+            return []  # 有环时返回空（不会真正生效，LangGraph 会用旧状态）
+        return merged
+
+    # 合并：existing 优先（保持已完成任务的状态），updates 补充新任务
     merged = {t["id"]: t for t in existing}
     for t in updates:
         merged[t["id"]] = t
-    return list(merged.values())
+
+    result = list(merged.values())
+
+    # 循环依赖检测：有环时拒绝更新，保留原有列表
+    if _detect_cycle(result):
+        print(f"[蜂群警告] 检测到循环依赖，已拒绝本次更新，保留原有状态")
+        return list(existing)
+
+    return result
 
 
 class SubTask(TypedDict, total=False):
@@ -79,6 +128,13 @@ class AgentState(TypedDict):
     evaluation_reason: Annotated[str, _LWW]
     next_action: Annotated[str, _LWW]
 
+    # ── 并行分发专用字段（Send API 模式）────────────────────
+    # Send 分发的单任务信息，由 plan_dispatch 填充
+    current_subtask_id: Annotated[str, _LWW]       # 当前要执行的子任务 ID
+    current_subtask_desc: Annotated[str, _LWW]      # 当前子任务描述
+    current_node_role: Annotated[str, _LWW]         # 节点角色：'parallel'/'researcher'/'coder'/'writer'/'reviewer'
+    # ─────────────────────────────────────────────────────────
+
     # 最终输出
     final_result: Annotated[Optional[dict], _LWW]
     logs: Annotated[list[str], _append_logs]   # 并发追加日志
@@ -113,6 +169,9 @@ class ExecutionContext:
             evaluation="pending",
             evaluation_reason="",
             next_action="",
+            current_subtask_id="",
+            current_subtask_desc="",
+            current_node_role="",
             final_result=None,
             logs=[],
             messages=[],
