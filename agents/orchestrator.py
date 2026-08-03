@@ -74,10 +74,10 @@ def orchestrator_plan(state: AgentState) -> AgentState:
     next_action = state.get("next_action", "")
 
     if evaluation == "retry" or next_action == "retry":
-        current_loop = 1  # retry 从头开始计数
+        current_loop = prev_loop + 1  # retry 也算一次循环，继续累加
         retry_feedback = state.get("evaluation_reason", "")
         is_replan = True
-        logs.append(f"[{task_id}] [Orchestrator] 重试，接入反馈：{retry_feedback[:60]}...")
+        logs.append(f"[{task_id}] [Orchestrator] 重试（循环{current_loop}/{MAX_LOOP}），接入反馈：{retry_feedback[:60]}...")
     else:
         current_loop = prev_loop + 1
         retry_feedback = ""

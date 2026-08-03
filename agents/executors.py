@@ -67,30 +67,19 @@ ROLE_CONFIG = {
 
 # ─── 统一执行器节点（并行入口） ───
 
-def executor_node(state: AgentState) -> AgentState:
+def _executor_parallel(
+    state: AgentState,
+    role: str,
+    subtask_id: str,
+    subtask_desc: str,
+    logs: list,
+    subtasks: list,
+    task_id: str,
+) -> AgentState:
     """
-    所有 Agent 的统一入口函数（并行版本）。
-    每个 Send 分发的任务触发一次调用，只处理单个子任务。
-
-    通过 state["task_id"] 字段确定节点角色：
-    - researcher / coder / writer / reviewer
-    通过 state["current_subtask_id"] 确定要执行哪个任务。
+    并行单任务模式：处理 Send 分发的单个任务。
+    执行完成后清理 current_subtask_* 字段，避免状态污染。
     """
-    task_id = state["task_id"]
-    node_name = state.get("current_node_role", "")  # Send 分发时显式传入的角色名
-    subtask_id = state.get("current_subtask_id", "")
-    subtask_desc = state.get("current_subtask_desc", "")
-    logs = list(state.get("logs", []))
-    subtasks = list(state.get("subtasks", []))
-
-    # 角色判定：优先用 current_node_role（Send 分发时设置），fallback 到 subtask 的 assigned_to
-    role = node_name if node_name in ROLE_CONFIG else subtasks[0]["assigned_to"] if subtasks else "researcher"
-
-    # 没任务就跳过
-    if not subtask_id:
-        logs.append(f"[{task_id}] [{role.capitalize()}] 无任务，跳过")
-        return {**state, "logs": logs}
-
     # 找到并锁定任务
     target_task = None
     for i, s in enumerate(subtasks):
@@ -123,14 +112,41 @@ def executor_node(state: AgentState) -> AgentState:
         f"({result.get('elapsed', 0):.1f}s)"
     )
 
-    # 各角色结果追加到对应字段
     results_key = f"{role}_results"
     return {
         **state,
         "subtasks": subtasks,
         results_key: state.get(results_key, []) + [result],
         "logs": logs,
+        # 清理分发字段，防止下次执行被污染
+        "current_subtask_id": "",
+        "current_subtask_desc": "",
+        "current_node_role": "",
     }
+
+
+def executor_node(state: AgentState) -> AgentState:
+    """
+    所有 Agent 的统一入口函数（双模式）：
+    1. 并行模式（current_subtask_id 有值）：处理 Send 分发的单个任务
+    2. 串行模式（current_subtask_id 为空）：处理该角色所有 pending 任务（向后兼容 simple_graph）
+    """
+    task_id = state["task_id"]
+    node_name = state.get("current_node_role", "")  # 并行分发时传入的角色名
+    subtask_id = state.get("current_subtask_id", "")
+    subtask_desc = state.get("current_subtask_desc", "")
+    logs = list(state.get("logs", []))
+    subtasks = list(state.get("subtasks", []))
+
+    # 角色判定：优先用 current_node_role（Send 分发），fallback 到 subtasks
+    role = node_name if node_name in ROLE_CONFIG else subtasks[0]["assigned_to"] if subtasks else "researcher"
+
+    # ── 并行单任务模式 ──────────────────────────────────────
+    if subtask_id:
+        return _executor_parallel(state, role, subtask_id, subtask_desc, logs, subtasks, task_id)
+
+    # ── 串行兼容模式（simple_graph 等无 current_subtask_id 的场景）───
+    return _compat_dispatch(state, role)
 
 
 # ─── 各 Agent 执行函数 ───
