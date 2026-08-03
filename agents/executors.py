@@ -1,11 +1,16 @@
 """
 执行 Agent 集合
 每个 Agent 负责一种特定类型的工作
+
+并行执行改造（v0.2.0）：
+- 新增 executor_node：所有 Agent 共用的统一入口
+- 通过 state["current_subtask_id"] 确定当前处理哪个任务
+- 通过被调用的节点名（node_name 字段）确定角色类型
+- 每个 Send 分发的任务独立触发一次 executor_node，真正并行
 """
 import json
 import time
-from typing import Callable
-from beehive.state import AgentState, SubTask
+from beehive.state import AgentState
 from beehive.llm import llm_call, PROVIDER_EXEC
 
 
@@ -38,262 +43,114 @@ REVIEWER_SYSTEM = """你是一个严格的质量评审专家。
 - 可执行性：建议是否具体、是否可以落地"""
 
 
-# ─── 辅助函数 ───
+# ─── 角色映射表 ───
 
-def _run_single_task(
-    task_desc: str,
-    executor_fn: Callable[[str], str],
-    task_id: str,
-    task_role: str,
-    logs: list,
-) -> dict:
-    """运行单个子任务，捕获异常，统一的执行包装器"""
-    logs.append(f"  → [{task_role}] 开始执行: {task_desc[:40]}")
-    
-    start = time.time()
-    try:
-        result = executor_fn(task_desc)
-        elapsed = time.time() - start
-        logs.append(f"  → [{task_role}] 完成 {task_id}（{elapsed:.1f}s）")
-        return {
-            "task_id": task_id,
-            "status": "success",
-            "result": result,
-            "error": None,
-            "confidence": 0.9,
-            "elapsed": elapsed,
-        }
-    except Exception as e:
-        elapsed = time.time() - start
-        logs.append(f"  → [{task_role}] {task_id} 失败：{str(e)}（{elapsed:.1f}s）")
-        return {
-            "task_id": task_id,
-            "status": "failed",
-            "result": None,
-            "error": str(e),
-            "confidence": 0.0,
-            "elapsed": elapsed,
-        }
+ROLE_CONFIG = {
+    "researcher": {
+        "system": RESEARCHER_SYSTEM,
+        "executor": "_researcher_execute",
+    },
+    "coder": {
+        "system": CODER_SYSTEM,
+        "executor": "_coder_execute",
+    },
+    "writer": {
+        "system": WRITER_SYSTEM,
+        "executor": "_writer_execute",
+    },
+    "reviewer": {
+        "system": REVIEWER_SYSTEM,
+        "executor": "_reviewer_execute",
+    },
+}
 
 
-# ─── 各角色 Agent 入口 ───
+# ─── 统一执行器节点（并行入口） ───
 
-def researcher_agent(state: AgentState) -> AgentState:
+def executor_node(state: AgentState) -> AgentState:
     """
-    研究员 Agent：信息搜集
-    负责执行所有 assigned_to='researcher' 的子任务
+    所有 Agent 的统一入口函数（并行版本）。
+    每个 Send 分发的任务触发一次调用，只处理单个子任务。
+
+    通过 state["task_id"] 字段确定节点角色：
+    - researcher / coder / writer / reviewer
+    通过 state["current_subtask_id"] 确定要执行哪个任务。
     """
     task_id = state["task_id"]
-    subtasks = state.get("subtasks", [])
+    node_name = state.get("current_node_role", "")  # Send 分发时显式传入的角色名
+    subtask_id = state.get("current_subtask_id", "")
+    subtask_desc = state.get("current_subtask_desc", "")
     logs = list(state.get("logs", []))
-    
-    my_tasks = [t for t in subtasks if t["assigned_to"] == "researcher" and t.get("status") == "pending"]
-    
-    if not my_tasks:
+    subtasks = list(state.get("subtasks", []))
+
+    # 角色判定：优先用 current_node_role（Send 分发时设置），fallback 到 subtask 的 assigned_to
+    role = node_name if node_name in ROLE_CONFIG else subtasks[0]["assigned_to"] if subtasks else "researcher"
+
+    # 没任务就跳过
+    if not subtask_id:
+        logs.append(f"[{task_id}] [{role.capitalize()}] 无任务，跳过")
         return {**state, "logs": logs}
-    
-    logs.append(f"[{task_id}] [Researcher] 接收到 {len(my_tasks)} 个任务")
-    
-    results = []
-    for task in my_tasks:
-        task_desc = task["description"]  # 立即捕获，防止闭包陷阱
-        
-        # 更新状态为 running
-        for s in subtasks:
-            if s["id"] == task["id"]:
-                s["status"] = "running"
-        
-        result = _run_single_task(
-            task_desc=task_desc,
-            executor_fn=_researcher_execute,
-            task_id=task["id"],
-            task_role=task["assigned_to"],
-            logs=logs,
-        )
-        results.append(result)
-        
-        # 更新任务状态
-        for s in subtasks:
-            if s["id"] == task["id"]:
-                s["status"] = "completed" if result["status"] == "success" else "failed"
-                s["result"] = result["result"]
-                s["error"] = result["error"]
-                s["confidence"] = result["confidence"]
-    
+
+    # 找到并锁定任务
+    target_task = None
+    for i, s in enumerate(subtasks):
+        if s["id"] == subtask_id:
+            target_task = subtasks[i]
+            subtasks[i]["status"] = "running"
+            break
+
+    if not target_task:
+        logs.append(f"[{task_id}] [{role.capitalize()}] 任务 {subtask_id} 不存在，跳过")
+        return {**state, "logs": logs, "subtasks": subtasks}
+
+    logs.append(f"[{task_id}] [{role.capitalize()}] 开始: {subtask_desc[:40]}...")
+
+    # 执行
+    result = _execute_task(role, subtask_desc, state)
+
+    # 更新任务状态
+    for i, s in enumerate(subtasks):
+        if s["id"] == subtask_id:
+            subtasks[i]["status"] = "completed" if result["status"] == "success" else "failed"
+            subtasks[i]["result"] = result.get("result")
+            subtasks[i]["error"] = result.get("error")
+            subtasks[i]["confidence"] = result.get("confidence")
+            break
+
+    logs.append(
+        f"[{task_id}] [{role.capitalize()}] "
+        f"{'✅' if result['status'] == 'success' else '❌'} {subtask_id} "
+        f"({result.get('elapsed', 0):.1f}s)"
+    )
+
+    # 各角色结果追加到对应字段
+    results_key = f"{role}_results"
     return {
         **state,
         "subtasks": subtasks,
-        "researcher_results": state.get("researcher_results", []) + results,
+        results_key: state.get(results_key, []) + [result],
         "logs": logs,
     }
 
 
-def coder_agent(state: AgentState) -> AgentState:
-    """程序员 Agent：代码实现"""
-    task_id = state["task_id"]
-    subtasks = state.get("subtasks", [])
-    logs = list(state.get("logs", []))
-    
-    my_tasks = [t for t in subtasks if t["assigned_to"] == "coder" and t.get("status") == "pending"]
-    if not my_tasks:
-        return {**state, "logs": logs}
-    
-    logs.append(f"[{task_id}] [Coder] 接收到 {len(my_tasks)} 个任务")
-    
-    results = []
-    for task in my_tasks:
-        task_desc = task["description"]
-        for s in subtasks:
-            if s["id"] == task["id"]:
-                s["status"] = "running"
-        
-        result = _run_single_task(
-            task_desc=task_desc,
-            executor_fn=_coder_execute,
-            task_id=task["id"],
-            task_role=task["assigned_to"],
-            logs=logs,
-        )
-        results.append(result)
-        
-        for s in subtasks:
-            if s["id"] == task["id"]:
-                s["status"] = "completed" if result["status"] == "success" else "failed"
-                s["result"] = result["result"]
-                s["error"] = result["error"]
-                s["confidence"] = result["confidence"]
-    
-    return {
-        **state,
-        "subtasks": subtasks,
-        "coder_results": state.get("coder_results", []) + results,
-        "logs": logs,
-    }
-
-
-def writer_agent(state: AgentState) -> AgentState:
-    """文案 Agent：内容撰写"""
-    task_id = state["task_id"]
-    subtasks = state.get("subtasks", [])
-    logs = list(state.get("logs", []))
-    
-    my_tasks = [t for t in subtasks if t["assigned_to"] == "writer" and t.get("status") == "pending"]
-    if not my_tasks:
-        return {**state, "logs": logs}
-    
-    logs.append(f"[{task_id}] [Writer] 接收到 {len(my_tasks)} 个任务")
-    
-    # 捕获 state 的快照（避免在 lambda 闭包中直接引用 state）
-    state_snapshot = {
-        "researcher_results": list(state.get("researcher_results", [])),
-        "coder_results": list(state.get("coder_results", [])),
-        "writer_results": list(state.get("writer_results", [])),
-    }
-    
-    results = []
-    for task in my_tasks:
-        task_desc = task["description"]
-        for s in subtasks:
-            if s["id"] == task["id"]:
-                s["status"] = "running"
-        
-        result = _run_single_task(
-            task_desc=task_desc,
-            executor_fn=lambda desc: _writer_execute(desc, state_snapshot),
-            task_id=task["id"],
-            task_role=task["assigned_to"],
-            logs=logs,
-        )
-        results.append(result)
-        
-        for s in subtasks:
-            if s["id"] == task["id"]:
-                s["status"] = "completed" if result["status"] == "success" else "failed"
-                s["result"] = result["result"]
-                s["error"] = result["error"]
-                s["confidence"] = result["confidence"]
-    
-    return {
-        **state,
-        "subtasks": subtasks,
-        "writer_results": state.get("writer_results", []) + results,
-        "logs": logs,
-    }
-
-
-def reviewer_agent(state: AgentState) -> AgentState:
-    """评审 Agent：质量审核"""
-    task_id = state["task_id"]
-    subtasks = state.get("subtasks", [])
-    logs = list(state.get("logs", []))
-    
-    my_tasks = [t for t in subtasks if t["assigned_to"] == "reviewer" and t.get("status") == "pending"]
-    if not my_tasks:
-        return {**state, "logs": logs}
-    
-    logs.append(f"[{task_id}] [Reviewer] 接收到 {len(my_tasks)} 个任务")
-    
-    # 捕获 state 快照（避免闭包陷阱）
-    state_snapshot = {
-        "researcher_results": list(state.get("researcher_results", [])),
-        "coder_results": list(state.get("coder_results", [])),
-        "writer_results": list(state.get("writer_results", [])),
-    }
-    
-    results = []
-    for task in my_tasks:
-        task_desc = task["description"]
-        for s in subtasks:
-            if s["id"] == task["id"]:
-                s["status"] = "running"
-        
-        result = _run_single_task(
-            task_desc=task_desc,
-            executor_fn=lambda desc: _reviewer_execute(desc, state_snapshot),
-            task_id=task["id"],
-            task_role=task["assigned_to"],
-            logs=logs,
-        )
-        results.append(result)
-        
-        for s in subtasks:
-            if s["id"] == task["id"]:
-                s["status"] = "completed" if result["status"] == "success" else "failed"
-                s["result"] = result["result"]
-                s["error"] = result["error"]
-                s["confidence"] = result["confidence"]
-    
-    return {
-        **state,
-        "subtasks": subtasks,
-        "reviewer_results": state.get("reviewer_results", []) + results,
-        "logs": logs,
-    }
-
-
-# ─── 各 Agent 的执行函数 ───
+# ─── 各 Agent 执行函数 ───
 
 def _researcher_execute(description: str) -> str:
     """研究员执行器：优先用真实搜索工具，fallback 到 LLM"""
-    # 尝试从任务描述中提取搜索关键词
     import re
-    # 去掉 "搜集"/"搜索" 等前缀，提取核心关键词
     query = re.sub(r"^(搜集|搜索|查找|查询)[\s:：]*", "", description).strip()
     if len(query) < 4:
         query = description
 
     try:
         from beehive.tools.search import search_and_summarize
-        result = search_and_summarize(query, max_results=5)
-        return result
-    except Exception as e:
-        # 搜索失败时降级到 LLM 自身知识
+        return search_and_summarize(query, max_results=5)
+    except Exception:
         fallback_prompt = f"""作为专业研究员，整理以下任务所需的关键信息：
 
 任务：{description}
 
 请搜索你的知识库，提供准确的信息和来源依据。"""
-
         return llm_call(fallback_prompt, system=RESEARCHER_SYSTEM, provider=PROVIDER_EXEC, temperature=0.3)
 
 
@@ -310,50 +167,42 @@ def _coder_execute(description: str) -> str:
 4. 如果有多种方案，简述利弊
 
 请开始实现。"""
-
-    result = llm_call(prompt, system=CODER_SYSTEM, provider=PROVIDER_EXEC, temperature=0.2)
-    return result
+    return llm_call(prompt, system=CODER_SYSTEM, provider=PROVIDER_EXEC, temperature=0.2)
 
 
-def _writer_execute(description: str, state: AgentState) -> str:
+def _writer_execute(description: str, context: dict) -> str:
     """文案执行器：撰写内容，参考已有上下文"""
-    # 汇总之前的执行结果作为上下文
-    context_parts = []
-    for r in state.get("researcher_results", []):
+    parts = []
+    for r in context.get("researcher_results", []):
         if r.get("result"):
-            context_parts.append(f"【研究员结果】\n{r['result']}")
-    for r in state.get("coder_results", []):
+            parts.append(f"【研究员结果】\n{r['result']}")
+    for r in context.get("coder_results", []):
         if r.get("result"):
-            context_parts.append(f"【程序员结果】\n{r['result']}")
-    
-    context = "\n\n".join(context_parts) if context_parts else "（暂无前置结果，直接执行）"
-    
+            parts.append(f"【程序员结果】\n{r['result']}")
+
+    ctx = "\n\n".join(parts) if parts else "（暂无前置结果，直接执行）"
     prompt = f"""请作为专业文案，执行以下撰写任务：
 
 任务：{description}
 
 前置Agent的成果（可作为参考）：
 ---
-{context}
+{ctx}
 ---
 
 请撰写对应内容。"""
-
-    result = llm_call(prompt, system=WRITER_SYSTEM, provider=PROVIDER_EXEC, temperature=0.4)
-    return result
+    return llm_call(prompt, system=WRITER_SYSTEM, provider=PROVIDER_EXEC, temperature=0.4)
 
 
-def _reviewer_execute(description: str, state: AgentState) -> str:
+def _reviewer_execute(description: str, context: dict) -> str:
     """评审执行器：评估之前的工作质量"""
-    # 汇总所有结果
     all_results = []
-    for role, results_key in [("研究员", "researcher_results"), ("程序员", "coder_results"), ("文案", "writer_results")]:
-        for r in state.get(results_key, []):
+    for role, key in [("研究员", "researcher_results"), ("程序员", "coder_results"), ("文案", "writer_results")]:
+        for r in context.get(key, []):
             if r.get("result"):
                 all_results.append(f"【{role}】{r['result']}")
-    
+
     results_text = "\n\n".join(all_results) if all_results else "（暂无评审对象）"
-    
     prompt = f"""请作为严格的质量评审专家，执行以下评审任务：
 
 评审任务：{description}
@@ -369,6 +218,148 @@ def _reviewer_execute(description: str, state: AgentState) -> str:
 3. 改进建议（逐条给出）
 
 请客观评审，不要一味说好话。"""
+    return llm_call(prompt, system=REVIEWER_SYSTEM, provider=PROVIDER_EXEC, temperature=0.1)
 
-    result = llm_call(prompt, system=REVIEWER_SYSTEM, provider=PROVIDER_EXEC, temperature=0.1)
-    return result
+
+def _execute_task(role: str, description: str, state: AgentState) -> dict:
+    """统一调度各角色执行器"""
+    context = {
+        "researcher_results": list(state.get("researcher_results", [])),
+        "coder_results": list(state.get("coder_results", [])),
+        "writer_results": list(state.get("writer_results", [])),
+    }
+
+    start = time.time()
+    try:
+        if role == "researcher":
+            result = _researcher_execute(description)
+        elif role == "coder":
+            result = _coder_execute(description)
+        elif role == "writer":
+            result = _writer_execute(description, context)
+        elif role == "reviewer":
+            result = _reviewer_execute(description, context)
+        else:
+            result = _researcher_execute(description)  # fallback
+
+        elapsed = time.time() - start
+        return {
+            "task_id": state.get("current_subtask_id", ""),
+            "status": "success",
+            "result": result,
+            "error": None,
+            "confidence": 0.9,
+            "elapsed": elapsed,
+        }
+    except Exception as e:
+        elapsed = time.time() - start
+        return {
+            "task_id": state.get("current_subtask_id", ""),
+            "status": "failed",
+            "result": None,
+            "error": str(e),
+            "confidence": 0.0,
+            "elapsed": elapsed,
+        }
+
+
+# ─── 向后兼容：保留原 Agent 函数（简单包装 executor_node 逻辑） ───
+# ─── 内部调用仍可用 researcher_agent() 等，不改动 orchestrator 以外的地方 ───
+
+def researcher_agent(state: AgentState) -> AgentState:
+    """研究员 Agent（向后兼容，内部路由到 executor_node）"""
+    return _compat_dispatch(state, "researcher")
+
+
+def coder_agent(state: AgentState) -> AgentState:
+    """程序员 Agent（向后兼容）"""
+    return _compat_dispatch(state, "coder")
+
+
+def writer_agent(state: AgentState) -> AgentState:
+    """文案 Agent（向后兼容）"""
+    return _compat_dispatch(state, "writer")
+
+
+def reviewer_agent(state: AgentState) -> AgentState:
+    """评审 Agent（向后兼容）"""
+    return _compat_dispatch(state, "reviewer")
+
+
+def _compat_dispatch(state: AgentState, role: str) -> AgentState:
+    """
+    向后兼容分发器：供旧版 graph（build_simple_graph）使用，
+    内部串行处理该角色所有 pending 任务。
+    并行 graph（build_task_graph）使用 executor_node，不走这里。
+    """
+    task_id = state["task_id"]
+    subtasks = list(state.get("subtasks", []))
+    logs = list(state.get("logs", []))
+    results_key = f"{role}_results"
+
+    my_tasks = [t for t in subtasks if t["assigned_to"] == role and t.get("status") == "pending"]
+    if not my_tasks:
+        return {**state, "logs": logs}
+
+    logs.append(f"[{task_id}] [{role.capitalize()}] 接收到 {len(my_tasks)} 个任务（串行模式）")
+
+    context = {
+        "researcher_results": list(state.get("researcher_results", [])),
+        "coder_results": list(state.get("coder_results", [])),
+        "writer_results": list(state.get("writer_results", [])),
+    }
+
+    results = []
+    for task in my_tasks:
+        result = _execute_single(role, task["description"], task["id"], context)
+        results.append(result)
+
+        for i, s in enumerate(subtasks):
+            if s["id"] == task["id"]:
+                subtasks[i]["status"] = "completed" if result["status"] == "success" else "failed"
+                subtasks[i]["result"] = result.get("result")
+                subtasks[i]["error"] = result.get("error")
+                subtasks[i]["confidence"] = result.get("confidence")
+
+    return {
+        **state,
+        "subtasks": subtasks,
+        results_key: state.get(results_key, []) + results,
+        "logs": logs,
+    }
+
+
+def _execute_single(role: str, description: str, task_id: str, context: dict) -> dict:
+    """执行单个任务（向后兼容函数）"""
+    start = time.time()
+    try:
+        if role == "researcher":
+            result = _researcher_execute(description)
+        elif role == "coder":
+            result = _coder_execute(description)
+        elif role == "writer":
+            result = _writer_execute(description, context)
+        elif role == "reviewer":
+            result = _reviewer_execute(description, context)
+        else:
+            result = _researcher_execute(description)
+
+        elapsed = time.time() - start
+        return {
+            "task_id": task_id,
+            "status": "success",
+            "result": result,
+            "error": None,
+            "confidence": 0.9,
+            "elapsed": elapsed,
+        }
+    except Exception as e:
+        elapsed = time.time() - start
+        return {
+            "task_id": task_id,
+            "status": "failed",
+            "result": None,
+            "error": str(e),
+            "confidence": 0.0,
+            "elapsed": elapsed,
+        }
