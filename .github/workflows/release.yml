@@ -16,17 +16,18 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Build
+      - name: Build package
         run: |
           pip install build
           python -m build
+          ls -la dist/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          generate_release_notes: true
-          name: ${{ github.ref_name }}
+          generate_release_notes: false
+          name: Beehive ${{ github.ref_name }}
           body: |
             🐝 **Beehive ${{ github.ref_name }}**
 
