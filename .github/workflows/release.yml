@@ -21,34 +21,19 @@ jobs:
           pip install build
           python -m build
 
-      - name: Create Release
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const path = require('path');
-            const tag = context.ref.replace('refs/tags/', '');
-            const distDir = path.join(process.cwd(), 'dist');
-            const files = fs.readdirSync(distDir);
+      - name: Install gh CLI
+        run: |
+          curl -fsSL https://github.com/cli/cli/releases/download/v2.65.0/gh_2.65.0_linux_amd64.tar.gz -o /tmp/gh.tar.gz
+          tar -xzf /tmp/gh.tar.gz -C /tmp
+          mv /tmp/gh_2.65.0_linux_amd64/bin/gh /usr/local/bin/gh
+          gh --version
 
-            const release = await github.rest.repos.createRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              tag_name: tag,
-              name: `Beehive ${tag}`,
-              body: `🐝 **Beehive ${tag}**\n\n多 Agent 协作平台首发版本！\n\n## 快速安装\n\`\`\`bash\npip install beehive==${tag}\n\`\`\``,
-              draft: false,
-              prerelease: false,
-            });
-
-            for (const file of files) {
-              const filePath = path.join(distDir, file);
-              await github.rest.repos.uploadReleaseAsset({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                release_id: release.data.id,
-                name: file,
-                data: fs.readFileSync(filePath),
-              });
-            }
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release create "$TAG" \
+            --title "Beehive $TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            dist/beehive-*.whl dist/beehive-*.tar.gz
