@@ -1,130 +1,198 @@
-# 🐝 蜂群（Beehive）
+# 🐝 Beehive（蜂群）
 
-> 多 Agent 协作平台 — 一个大模型领头，多个专项 Agent 分工执行
+> 多 Agent 协作平台 — 一个大模型领头，多个专项 Agent 并行执行
 
-## 架构
+[![MIT License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-0.2+-green.svg)](https://langchain-ai.github.io/langgraph/)
 
-```
-用户任务
-   ↓
-┌─────────────────────────┐
-│  Orchestrator（领头模型） │
-│  · 理解意图              │
-│  · 拆解子任务            │
-│  · 评估结果决定下一步     │
-└─────────────────────────┘
-   ↓ 分发
-┌──────┐ ┌──────┐ ┌──────┐
-│研究员│ │程序员│ │文案  │  ← 执行 Agent 池
-└──────┘ └──────┘ └──────┘
-```
+## 🎯 是什么
 
-## 快速开始
+蜂群是一个多 Agent 协作框架。你描述一个任务，领头模型自动拆解、分派，多个专项 Agent 并行执行，结果统一评估交付。
 
-### 1. 安装依赖
+就像一个项目团队：项目经理（Orchestrator）接需求 → 分配给研究员、程序员、作家 → 各司其职 → 项目经理验收结果。
+
+## ⚡ 快速开始
+
+### 安装
 
 ```bash
-cd /home/sandboxadm/openclaw/workspace/beehive
-pip install -r requirements.txt
-
-# 配置 API Key（支持 OpenAI / DeepSeek / 豆包）
-export OPENAI_API_KEY="sk-xxxx"
-# 或
-export DEEPSEEK_API_KEY="sk-xxxx"
+pip install beehive
 ```
 
-### 2. 启动 API 服务
+或从源码安装：
 
 ```bash
-cd /home/sandboxadm/openclaw/workspace
-python -m beehive.api
-# 输出：Uvicorn running on http://0.0.0.0:8000
+git clone https://github.com/Sking-37/beehive.git
+cd beehive
+pip install -e .
 ```
 
-### 3. 提交任务
+### 配置 API Key
 
 ```bash
-# 方式一：命令行（推荐先用这个验证）
-python -m beehive.cli run "分析这篇访谈记录，输出核心洞察"
-
-# 方式二：API 直接调用
-curl -X POST http://localhost:8000/tasks \
-  -H "Content-Type: application/json" \
-  -d '{"task": "帮我写一份竞品分析报告"}'
-
-# 方式三：流式输出（实时看执行过程）
-python -m beehive.cli run "帮我做市场调研" --verbose
+export DEEPSEEK_API_KEY=sk-your-key-here
+# 或者创建 config.yaml
+cp config.example.yaml config.yaml
+# 编辑 config.yaml 填入你的 key
 ```
 
-### 4. 查看状态
+### 命令行使用
 
 ```bash
-python -m beehive.cli list                    # 列出最近任务
-python -m beehive.cli status <task_id>        # 查看状态
-python -m beehive.cli logs <task_id>          # 查看日志
+# 运行任务
+beehive run "帮我写一个博客系统，包含用户认证和文章发布"
+
+# 查看任务状态
+beehive status <task_id>
+
+# 查看所有任务
+beehive list
+
+# 查看日志
+beehive logs <task_id>
 ```
 
-### 5. 访问 Web 界面
+### Web 界面
+
+```bash
+# 启动 API + Web 服务
+beehive serve
+
+# 浏览器打开 http://localhost:5173
+```
+
+## 🏗️ 架构
 
 ```
-http://localhost:8000  （API docs）
+用户输入任务
+    │
+    ▼
+┌─────────────────┐
+│  Orchestrator   │ ← 领头模型：理解需求 → 拆解子任务 → 规划执行顺序
+│  (领头大模型)    │   评估结果 → 决定重试/继续/终止
+└────────┬────────┘
+         │ 分派任务
+    ┌────┴────┬──────────┬──────────┐
+    ▼         ▼          ▼          ▼
+┌──────┐ ┌──────┐  ┌─────────┐ ┌──────────┐
+│ 🔍   │ │ 💻   │  │ ✍️      │ │ 👀       │
+│Research│ │Coder │  │ Writer  │ │ Reviewer│
+│ 研究  │ │ 代码  │  │ 文案    │ │ 审查     │
+└───┬──┘ └───┬──┘  └────┬────┘ └────┬────┘
+    │        │          │           │
+    └────────┴──────────┴───────────┘
+                │ 汇总结果
+                ▼
+         ┌──────────────┐
+         │ Orchestrator │
+         │   评估输出    │
+         └──────────────┘
+                │
+                ▼
+           最终结果
 ```
 
-## 项目结构
+## 📁 项目结构
 
 ```
 beehive/
-├── __init__.py          # 项目标识
-├── config.py            # 全局配置（API Key、模型选择、超时等）
-├── llm.py               # LLM 统一调用接口（支持 OpenAI/DeepSeek/豆包）
-├── state.py             # 状态定义（AgentState / SubTask）
-├── storage.py           # SQLite 持久化
-├── cli.py               # 命令行入口
-│
-├── agents/             # Agent 定义
-│   ├── orchestrator.py # 领头模型（拆解 + 评估）
-│   └── executors.py     # 执行 Agent（研究员/程序员/文案/评审）
-│
-├── graph/              # LangGraph 任务编排
-│   └── flow.py         # 任务图 + 条件边路由
-│
-└── api/                # FastAPI 服务层
-    └── main.py         # REST API + SSE 流式接口
+├── agents/          # Agent 角色定义
+│   ├── orchestrator.py  # 领头模型
+│   └── executors.py     # 执行 Agent 池
+├── api/             # FastAPI 接口
+│   └── main.py
+├── cli.py           # 命令行入口
+├── config.py        # 配置管理
+├── graph/           # LangGraph 状态图
+│   └── flow.py
+├── llm.py           # LLM 统一调用
+├── state.py         # AgentState 状态定义
+├── storage.py       # SQLite 持久化
+├── ui/              # Web 前端
+│   ├── index.html
+│   └── server.py
+└── tools/           # Agent 可调用的工具
+    └── search.py
 ```
 
-## Agent 角色说明
+## 🔧 配置
 
-| Agent | 职责 | 适用场景 |
-|-------|------|---------|
-| **researcher** | 信息搜集、数据查找、竞品调研 | 任何需要外部信息的任务 |
-| **coder** | 代码实现、bug修复、技术方案 | 编程相关任务 |
-| **writer** | 文案撰写、报告生成、内容整理 | 写作相关任务 |
-| **reviewer** | 质量评审、问题识别、改进建议 | 结果审核 |
-| **orchestrator** | 领头模型全局决策 | 极少单独使用 |
+### 支持的模型后端
 
-## 设计原则
+| 后端 | 模型 | 配置 Key |
+|------|------|---------|
+| DeepSeek | `deepseek-v4-flash` | `DEEPSEEK_API_KEY` |
+| OpenAI | `gpt-4o-mini` 等 | `OPENAI_API_KEY` |
+| 豆包 | `doubao-*` | `ARK_API_KEY` |
 
-1. **领头模型专注规划，不做执行**：拆解和评估是领头模型的核心职责
-2. **结构化输出**：领头模型返回 JSON 格式的任务拆解结果，有明确的 Schema
-3. **循环控制**：评估结果触发 next/retry/done，配合 max_loop=5 防卡死
-4. **错误隔离**：单个 Agent 失败不影响全局，错误信息反馈给领头模型重新规划
+### config.yaml 示例
 
-## 开发说明
+```yaml
+llm:
+  provider: "deepseek"       # deepseek / openai / doubao
+  model: "deepseek-v4-flash"
+  api_key: "${DEEPSEEK_API_KEY}"
+
+orchestrator:
+  model: "deepseek-v4-flash"  # 领头模型（可用更强的）
+  max_loop: 5
+  temperature: 0.3
+
+execution:
+  max_parallel: 4           # 最大并发数
+  timeout_per_task: 120     # 单任务超时（秒）
+
+search:
+  provider: "tavily"        # tavily / duckduckgo
+  api_key: "${TAVILY_API_KEY}"
+```
+
+## 📦 作为 Python 库使用
+
+```python
+from beehive import Beehive
+
+# 初始化
+hive = Beehive(
+    llm_config={"provider": "deepseek", "api_key": "sk-xxx"},
+    max_loop=5,
+)
+
+# 运行任务
+result = hive.run("帮我分析量子计算行业报告")
+
+print(result["final_result"])
+print(result["subtasks"])
+```
+
+## 🧪 测试
 
 ```bash
-# 目录
-cd /home/sandboxadm/openclaw/workspace/beehive
+# 单次测试
+DEEPSEEK_API_KEY=sk-xxx python test_run.py
 
-# 测试单个模块
-cd /home/sandboxadm/openclaw/workspace/beehive
-python -c "from beehive.graph import get_task_graph; print('✅ 图构建正常')"
-
-# 测试 API（需要先配 API Key）
-python -m beehive.api &
-curl http://localhost:8000/
+# 运行 pytest
+pytest tests/
 ```
 
-## 版本说明
+## 🐳 Docker 部署
 
-- **v0.1.0**：最小可行版本，包含核心 Orchestrator + 4个执行 Agent + CLI + API
-- 后续版本计划：Web 界面、OpenClaw 集成、真实工具接入、并发队列、Docker 部署
+```bash
+docker build -t beehive .
+docker run -p 8000:8000 -p 5173:5173 \
+  -e DEEPSEEK_API_KEY=sk-xxx \
+  beehive
+```
+
+## 📝 许可证
+
+MIT License - 详见 [LICENSE](LICENSE) 文件。
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 PR！
+
+---
+
+Built with 🪷 by 藕生 + LangGraph

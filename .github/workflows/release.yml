@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build
+        run: |
+          pip install build
+          python -m build
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*
+          generate_release_notes: true
+          name: ${{ github.ref_name }}
+          body: |
+            🐝 **Beehive ${{ github.ref_name }}**
+
+            多 Agent 协作平台首发版本！
+
+            ## 快速安装
+            ```bash
+            pip install beehive==${{ github.ref_name }}
+            # 或
+            pip install https://github.com/Sking-37/beehive/releases/download/${{ github.ref_name }}/beehive-${{ github.ref_name }}-py3-none-any.whl
+            ```
+
+            ## 主要功能
+            - Multi-Agent 协作引擎（Orchestrator + 执行 Agent 池）
+            - LangGraph 状态图智能调度
+            - FastAPI 接口 + Web 可视化界面
+            - CLI 命令行工具
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beehive"
+version = "0.1.0"
+description = "🐝 蜂群 - 多 Agent 协作平台，一个大模型领头，多个专项 Agent 执行"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Sking-37", email = "sking37@github.com"}
+]
+keywords = ["multi-agent", "llm", "langgraph", "orchestration", "ai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.0.0",
+    "requests>=2.31.0",
+    "sse-starlette>=2.0.0",
+    "httpx>=0.27.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+openai = ["langchain-openai>=0.2.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23.0", "black>=24.0.0", "ruff>=0.4.0"]
+
+[project.scripts]
+beehive = "beehive.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Sking-37/beehive"
+Documentation = "https://github.com/Sking-37/beehive#readme"
+Repository = "https://github.com/Sking-37/beehive"
+Issues = "https://github.com/Sking-37/beehive/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["beehive*"]
+exclude = ["beehive.ui*", "beehive.tools*"]
+
+[tool.setuptools.package-data]
+beehive = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
