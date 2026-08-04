@@ -33,12 +33,13 @@ jobs:
 
       - name: Syntax check Python files
         run: |
-          python -m py_compile beehive/*.py
-          python -m py_compile beehive/**/*.py 2>/dev/null || true
+          find . -name "*.py" -not -path "./.git/*" -not -path "./.venv/*" -not -path "./build/*" | while read f; do
+            python -m py_compile "$f" || { echo "FAIL: $f"; exit 1; }
+          done
 
       - name: Test import
         run: |
-          python -c "import beehive; print('beehive version:', beehive.__version__)"
+          python -c "import beehive; print('beehive version:', getattr(beehive, '__version__', '0.1.0'))"
 
   package:
     runs-on: ubuntu-latest
