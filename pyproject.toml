@@ -47,6 +47,9 @@ Documentation = "https://github.com/Sking-37/beehive#readme"
 Repository = "https://github.com/Sking-37/beehive"
 Issues = "https://github.com/Sking-37/beehive/issues"
 
+[tool.setuptools]
+py-modules = []
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["beehive*"]
