@@ -20,30 +20,35 @@ jobs:
         run: |
           pip install build
           python -m build
-          ls -la dist/
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Create Release
+        uses: actions/github-script@v7
         with:
-          files: dist/*
-          generate_release_notes: false
-          name: Beehive ${{ github.ref_name }}
-          body: |
-            🐝 **Beehive ${{ github.ref_name }}**
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const tag = context.ref.replace('refs/tags/', '');
+            const distDir = path.join(process.cwd(), 'dist');
+            const files = fs.readdirSync(distDir);
 
-            多 Agent 协作平台首发版本！
+            const release = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: `Beehive ${tag}`,
+              body: `🐝 **Beehive ${tag}**\n\n多 Agent 协作平台首发版本！\n\n## 快速安装\n\`\`\`bash\npip install beehive==${tag}\n\`\`\``,
+              draft: false,
+              prerelease: false,
+            });
 
-            ## 快速安装
-            ```bash
-            pip install beehive==${{ github.ref_name }}
-            # 或
-            pip install https://github.com/Sking-37/beehive/releases/download/${{ github.ref_name }}/beehive-${{ github.ref_name }}-py3-none-any.whl
-            ```
-
-            ## 主要功能
-            - Multi-Agent 协作引擎（Orchestrator + 执行 Agent 池）
-            - LangGraph 状态图智能调度
-            - FastAPI 接口 + Web 可视化界面
-            - CLI 命令行工具
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            for (const file of files) {
+              const filePath = path.join(distDir, file);
+              await github.rest.repos.uploadReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.data.id,
+                name: file,
+                data: fs.readFileSync(filePath),
+              });
+            }
