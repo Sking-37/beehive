@@ -1,13 +1,15 @@
 name: Build Windows EXE
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
 
 jobs:
   build-exe:
     runs-on: windows-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -17,31 +19,21 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install beehive
-        run: |
-          $ver = "${{ github.ref_name }}" -replace "^v", ""
-          pip install beehive==$ver
+      - name: Download wheel from CI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          run-id: ${{ github.event.workflow_run.id }}
+          path: ./dist
 
-      - name: Install PyInstaller
-        run: pip install pyinstaller
-
-      - name: Create startup script
+      - name: Install beehive from local wheel
         run: |
-          $content = @'
-          @echo off
-          set BEEHIVE_API_KEY=%1
-          shift
-          beehive %*
-          '@
-          # Just use beehive directly since CLI entry is beehive=main
-          echo "beehive installed"
-
-      - name: Download PyInstaller bootloader (fix)
-        run: |
-          python -c "import PyInstaller; print(PyInstaller.__file__)"
+          pip install dist/beehive-*.whl
+          beehive --version
 
       - name: Build exe with PyInstaller
         run: |
+          pip install pyinstaller
           pyinstaller --onefile --name beehive --console `
             --add-data "beehive;beehive" `
             --hidden-import=beehive `
@@ -66,16 +58,12 @@ jobs:
             --noconfirm `
             dist/beehive.exe
 
-      - name: Install GitHub CLI
-        run: |
-          Invoke-WebRequest "https://github.com/cli/cli/releases/download/v2.65.0/gh_2.65.0_windows_amd64.zip" -OutFile gh.zip
-          Expand-Archive gh.zip -DestinationPath C:\gh -Force
-          Add-Content $env:GITHUB_PATH "C:\gh\gh_2.65.0_windows_amd64\bin"
-
       - name: Upload EXE to Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "${{ github.ref_name }}"
+          # Find the tag for this run
+          $tag = "${{ github.event.workflow_run.head_sha }}"
+          # Use the release associated with the run or latest
           $exe = "dist/beehive.exe"
-          gh release upload "$tag" "$exe" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "v0.1.2" "$exe" --repo "$GITHUB_REPOSITORY" --clobber
