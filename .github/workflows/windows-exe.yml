@@ -19,18 +19,18 @@ jobs:
 
       - name: Build wheel from source
         run: |
-          pip install --upgrade pip setuptools wheel build
+          python -m pip install --upgrade pip setuptools wheel build
           python -m build
           dir dist\
 
       - name: Install beehive from local wheel
         run: |
-          pip install dist/beehive-*.whl
+          python -m pip install dist/beehive-*.whl
           beehive --version
 
       - name: Build exe with PyInstaller
         run: |
-          pip install pyinstaller
+          python -m pip install pyinstaller
           pyinstaller --onefile --name beehive --console `
             --hidden-import=beehive `
             --hidden-import=beehive.agents `
