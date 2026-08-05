@@ -33,16 +33,15 @@ jobs:
 
       - name: Create or Update GitHub Release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          # Check if release already exists (draft or published)
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $TAG exists, editing..."
             gh release edit "$TAG" \
               --title "Beehive $TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              dist/beehive-*.whl dist/beehive-*.tar.gz
+              --notes "Beehive $TAG - pip install: pip install beehive" \
+              --repo "$GITHUB_REPOSITORY"
           else
             echo "Creating new release $TAG..."
             gh release create "$TAG" \
@@ -51,3 +50,11 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               dist/beehive-*.whl dist/beehive-*.tar.gz
           fi
+
+      - name: Upload dist files to Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release upload "$TAG" dist/beehive-*.whl dist/beehive-*.tar.gz \
+            --repo "$GITHUB_REPOSITORY" --clobber
