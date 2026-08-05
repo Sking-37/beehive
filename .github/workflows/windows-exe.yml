@@ -30,13 +30,38 @@ jobs:
           wheel=$(ls dist/beehive-*.whl)
           python -m pip install "$wheel"
           python -c "import beehive; print('beehive', beehive.__version__, 'installed')"
+          # Get installed location for PyInstaller
+          pip show beehive | grep Location > /tmp/beehive_loc.txt
+          cat /tmp/beehive_loc.txt
 
       - name: Build exe with PyInstaller
         shell: bash
         run: |
           python -m pip install pyinstaller
+          
+          # Find beehive install location
+          loc=$(python -c "import beehive; import os; print(os.path.dirname(beehive.__file__))")
+          echo "beehive installed at: $loc"
+          
+          # Create entry point wrapper script
+          cat > run_beehive.py << 'PYEOF'
+          """Entry point for PyInstaller bundled exe"""
+          import sys
+          import os
+          sys.path.insert(0, os.path.dirname(__file__))
+          from beehive.cli import main
+          main()
+          PYEOF
+
+          # Package installed beehive into dist/ as beehive/
+          mkdir -p dist/beehive_pkg
+          cp -r "$loc"/* dist/beehive_pkg/
+          
+          # Remove __pycache__ to avoid issues
+          find dist/beehive_pkg -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
+          
           pyinstaller --onefile --name beehive --console \
-            --add-data "beehive:beehive" \
+            --add-data "dist/beehive_pkg:beehive" \
             --hidden-import=beehive \
             --hidden-import=beehive.agents \
             --hidden-import=beehive.agents.orchestrator \
@@ -47,6 +72,8 @@ jobs:
             --hidden-import=beehive.llm \
             --hidden-import=beehive.config \
             --hidden-import=beehive.storage \
+            --hidden-import=beehive.cli \
+            --hidden-import=beehive.__main__ \
             --hidden-import=langgraph \
             --hidden-import=langgraph.graph.state \
             --hidden-import=langchain_core \
@@ -62,10 +89,14 @@ jobs:
             --collect-all=langchain_core \
             --collect-all=rich \
             --noconfirm \
-            --specpath dist \
-            --workpath dist/build \
             --distpath dist \
-            beehive
+            run_beehive.py
+
+      - name: Verify exe
+        shell: bash
+        run: |
+          ls -lh dist/beehive.exe 2>/dev/null || echo "EXE not found!"
+          file dist/beehive.exe 2>/dev/null || echo "file command not available"
 
       - name: Install GitHub CLI
         run: |
