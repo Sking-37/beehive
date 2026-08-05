@@ -36,6 +36,7 @@ jobs:
         run: |
           python -m pip install pyinstaller
           pyinstaller --onefile --name beehive --console \
+            --add-data "beehive:beehive" \
             --hidden-import=beehive \
             --hidden-import=beehive.agents \
             --hidden-import=beehive.agents.orchestrator \
@@ -61,7 +62,10 @@ jobs:
             --collect-all=langchain_core \
             --collect-all=rich \
             --noconfirm \
-            dist/beehive.exe
+            --specpath dist \
+            --workpath dist/build \
+            --distpath dist \
+            beehive
 
       - name: Install GitHub CLI
         run: |
