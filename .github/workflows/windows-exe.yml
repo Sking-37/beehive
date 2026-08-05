@@ -104,6 +104,8 @@ jobs:
           Add-Content $env:GITHUB_PATH "C:\gh\gh_2.65.0_windows_amd64\bin"
 
       - name: Create or Update Release and Upload EXE
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           ver="${{ github.ref_name }}"
