@@ -26,7 +26,7 @@ jobs:
       - name: Install beehive from local wheel
         run: |
           python -m pip install dist/beehive-*.whl
-          beehive --version
+          python -m beehive.cli --version
 
       - name: Build exe with PyInstaller
         run: |
@@ -52,7 +52,9 @@ jobs:
             --hidden-import=rich.console `
             --hidden-import=rich.table `
             --hidden-import=pydantic `
-            --hidden-import=pydantic.version `
+            --hidden-import=pydantic.version
+            --hidden-import=pyproject_hooks
+            --hidden-import=colorama `
             --collect-all=langgraph `
             --collect-all=langchain_core `
             --collect-all=rich `
