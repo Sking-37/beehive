@@ -28,12 +28,23 @@ jobs:
           mv /tmp/gh_2.65.0_linux_amd64/bin/gh /usr/local/bin/gh
           gh --version
 
-      - name: Create GitHub Release
+      - name: Create or Update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          gh release create "$TAG" \
-            --title "Beehive $TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            dist/beehive-*.whl dist/beehive-*.tar.gz
+          # Check if release already exists (draft or published)
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG exists, editing..."
+            gh release edit "$TAG" \
+              --title "Beehive $TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              dist/beehive-*.whl dist/beehive-*.tar.gz
+          else
+            echo "Creating new release $TAG..."
+            gh release create "$TAG" \
+              --title "Beehive $TAG" \
+              --draft \
+              --repo "$GITHUB_REPOSITORY" \
+              dist/beehive-*.whl dist/beehive-*.tar.gz
+          fi
