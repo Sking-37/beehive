@@ -52,7 +52,6 @@ jobs:
     needs: test
     if: |
       (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) ||
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
       github.event_name == 'workflow_dispatch'
 
     steps:
@@ -69,21 +68,3 @@ jobs:
           python -m pip install build
           python -m build
           ls -la dist/
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*
-          draft: false
-          prerelease: false
-          name: Beehive ${{ github.ref_name }}
-          body: |
-            🐝 **Beehive ${{ github.ref_name }}**
-
-            多 Agent 协作平台首发版本！
-
-            ## 快速安装
-            ```bash
-            pip install beehive==${{ github.ref_name }}
-            ```
-        token: ${{ secrets.GITHUB_TOKEN }}
