@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "beehive"
-version = "0.1.0"
+version = "0.1.1"
 description = "🐝 蜂群 - 多 Agent 协作平台，一个大模型领头，多个专项 Agent 执行"
 readme = "README.md"
 license = {text = "MIT"}
