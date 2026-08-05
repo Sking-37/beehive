@@ -1,0 +1,80 @@
+name: Build Windows EXE
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-exe:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install beehive
+        run: |
+          pip install beehive==${{ github.ref_name }}
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Create startup script
+        run: |
+          $content = @'
+          @echo off
+          set BEEHIVE_API_KEY=%1
+          shift
+          beehive %*
+          '@
+          # Just use beehive directly since CLI entry is beehive=main
+          echo "beehive installed"
+
+      - name: Download PyInstaller bootloader (fix)
+        run: |
+          python -c "import PyInstaller; print(PyInstaller.__file__)"
+
+      - name: Build exe with PyInstaller
+        run: |
+          pyinstaller --onefile --name beehive --console `
+            --add-data "beehive;beehive" `
+            --hidden-import=beehive `
+            --hidden-import=beehive.agents `
+            --hidden-import=beehive.agents.orchestrator `
+            --hidden-import=beehive.agents.executors `
+            --hidden-import=beehive.graph `
+            --hidden-import=beehive.graph.flow `
+            --hidden-import=beehive.state `
+            --hidden-import=beehive.llm `
+            --hidden-import=beehive.config `
+            --hidden-import=beehive.storage `
+            --hidden-import=langgraph `
+            --hidden-import=langgraph.graph.state `
+            --hidden-import=langchain_core `
+            --hidden-import=fastapi `
+            --hidden-import=click `
+            --hidden-import=rich `
+            --collect-all=langgraph `
+            --collect-all=langchain_core `
+            --collect-all=rich `
+            --noconfirm `
+            dist/beehive.exe
+
+      - name: Install GitHub CLI
+        run: |
+          Invoke-WebRequest "https://github.com/cli/cli/releases/download/v2.65.0/gh_2.65.0_windows_amd64.zip" -OutFile gh.zip
+          Expand-Archive gh.zip -DestinationPath C:\gh -Force
+          Add-Content $env:GITHUB_PATH "C:\gh\gh_2.65.0_windows_amd64\bin"
+
+      - name: Upload EXE to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $exe = "dist/beehive.exe"
+          gh release upload "$tag" "$exe" --repo "$GITHUB_REPOSITORY" --clobber
