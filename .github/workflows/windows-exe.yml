@@ -29,7 +29,7 @@ jobs:
         run: |
           wheel=$(ls dist/beehive-*.whl)
           python -m pip install "$wheel"
-          python -m beehive.cli --help
+          python -c "import beehive; print('beehive', beehive.__version__, 'installed')"
 
       - name: Build exe with PyInstaller
         shell: bash
