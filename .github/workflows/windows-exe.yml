@@ -19,7 +19,8 @@ jobs:
 
       - name: Install beehive
         run: |
-          pip install beehive==${{ github.ref_name }}
+          $ver = "${{ github.ref_name }}" -replace "^v", ""
+          pip install beehive==$ver
 
       - name: Install PyInstaller
         run: pip install pyinstaller
