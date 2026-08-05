@@ -104,14 +104,11 @@ jobs:
           Add-Content $env:GITHUB_PATH "C:\gh\gh_2.65.0_windows_amd64\bin"
 
       - name: Create or Update Release and Upload EXE
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           ver="${{ github.ref_name }}"
           echo "Tag: $ver"
           
-          # Check if release exists
           if gh release view "$ver" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release exists, editing..."
             gh release edit "$ver" \
@@ -126,6 +123,5 @@ jobs:
               --repo "$GITHUB_REPOSITORY"
           fi
           
-          # Upload exe
           gh release upload "$ver" dist/beehive.exe --repo "$GITHUB_REPOSITORY" --clobber
           echo "Upload done!"
