@@ -1,0 +1,129 @@
+name: Build Windows EXE
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-exe:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build wheel from source
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip setuptools wheel build
+          python -m build
+          ls -la dist/
+
+      - name: Install beehive from local wheel
+        shell: bash
+        run: |
+          wheel=$(ls dist/beehive-*.whl)
+          python -m pip install "$wheel"
+          python -c "import beehive; print('beehive', beehive.__version__, 'installed')"
+
+      - name: Build exe with PyInstaller
+        shell: bash
+        run: |
+          python -m pip install pyinstaller
+          
+          # Get beehive package location
+          loc=$(python -c "import beehive; import os; print(os.path.dirname(beehive.__file__))")
+          echo "beehive location: $loc"
+          
+          # Package installed beehive as dist/beehive_pkg/beehive/
+          mkdir -p "dist/beehive_pkg"
+          cp -r "$loc" "dist/beehive_pkg/beehive"
+          echo "Contents:"
+          ls dist/beehive_pkg/beehive/
+          
+          # Create entry point
+          cat > run_beehive.py << 'PYEOF'
+          """Entry point for PyInstaller bundled exe"""
+          import sys, os
+          exe_dir = os.path.dirname(sys.executable)
+          sys.path.insert(0, exe_dir)
+          from beehive.cli import main
+          main()
+          PYEOF
+          
+          pyinstaller --onefile --name beehive --console \
+            --add-data "dist/beehive_pkg;." \
+            --add-data "run_beehive.py;." \
+            --hidden-import=beehive \
+            --hidden-import=beehive.agents \
+            --hidden-import=beehive.agents.orchestrator \
+            --hidden-import=beehive.agents.executors \
+            --hidden-import=beehive.graph \
+            --hidden-import=beehive.graph.flow \
+            --hidden-import=beehive.state \
+            --hidden-import=beehive.llm \
+            --hidden-import=beehive.config \
+            --hidden-import=beehive.storage \
+            --hidden-import=beehive.cli \
+            --hidden-import=beehive.__main__ \
+            --hidden-import=langgraph \
+            --hidden-import=langgraph.graph.state \
+            --hidden-import=langchain_core \
+            --hidden-import=langchain_core.messages \
+            --hidden-import=fastapi \
+            --hidden-import=click \
+            --hidden-import=rich \
+            --hidden-import=rich.console \
+            --hidden-import=rich.table \
+            --hidden-import=pydantic \
+            --hidden-import=pydantic.version \
+            --collect-all=langgraph \
+            --collect-all=langchain_core \
+            --collect-all=rich \
+            --noconfirm \
+            --distpath dist \
+            run_beehive.py
+
+      - name: Verify exe
+        shell: bash
+        run: |
+          ls -lh dist/beehive.exe && echo "EXE built OK"
+
+      - name: Install GitHub CLI
+        run: |
+          Invoke-WebRequest "https://github.com/cli/cli/releases/download/v2.65.0/gh_2.65.0_windows_amd64.zip" -OutFile gh.zip
+          Expand-Archive gh.zip -DestinationPath C:\gh -Force
+          Add-Content $env:GITHUB_PATH "C:\gh\gh_2.65.0_windows_amd64\bin"
+
+      - name: Create or Update Release and Upload EXE
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          ver="${{ github.ref_name }}"
+          echo "Tag: $ver"
+          
+          if gh release view "$ver" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release exists, editing..."
+            gh release edit "$ver" \
+              --title "Beehive $ver" \
+              --notes "Beehive $ver - Windows EXE" \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            echo "Creating new release $ver..."
+            gh release create "$ver" \
+              --title "Beehive $ver" \
+              --draft \
+              --repo "$GITHUB_REPOSITORY"
+          fi
+          
+          gh release upload "$ver" dist/beehive.exe --repo "$GITHUB_REPOSITORY" --clobber
+          echo "Upload done!"
